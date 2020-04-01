@@ -1,0 +1,56 @@
+name: Build Server
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:12-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_DB: testdb
+          POSTGRES_HOST_AUTH_METHOD: trust
+
+
+    steps:
+      - uses: actions/checkout@50fbc622fc4ef5163becd7fab6573eac35f8462e  # v1
+
+      - uses: actions/cache@a505c2e7a6652a1d5727baf1c2dc5a5b2d1ecc60  # v1
+        id: cache
+        with:
+          path: cache
+          key: ${{ runner.os }}-docker-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-docker-
+
+      - name: Load Cache
+        run: |
+          if [ -f "cache/image.tar" ]; then
+            docker load -i cache/image.tar
+            rm -rf cache/
+          fi
+
+      - name: Build Image
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --cache-from website -t website -t $IMAGE_TAG .
+          mkdir -p cache
+          docker save website > cache/image.tar
+
+      - name: Run Linting
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker run $IMAGE_TAG black --check .
+          docker run $IMAGE_TAG flake8
+
+      - name: Run Tests
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker run --net host --env DJANGO_SETTINGS_MODULE=config.settings.testing --env DATABASE_URL=postgres://testuser@localhost/testdb -v $PWD/test-reports:/app/test-reports $IMAGE_TAG pytest apps
