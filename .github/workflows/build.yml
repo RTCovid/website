@@ -42,6 +42,13 @@ jobs:
           mkdir -p cache
           docker save website > cache/image.tar
 
+      - name: Run Linting
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker run $IMAGE_TAG black --check .
+          docker run $IMAGE_TAG flake8
+
       - name: Run Tests
         env:
           IMAGE_TAG: ${{ github.sha }}
