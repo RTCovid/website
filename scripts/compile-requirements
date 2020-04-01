@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+
+pip-compile -q --no-annotate reqs/dev.in

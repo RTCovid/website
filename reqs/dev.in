@@ -1,0 +1,4 @@
+-r common.base
+
+pytest-cov>=2.8,<2.9
+pytest-django>=3.8,<3.9
