@@ -1,3 +1,4 @@
 dj-database-url>=0.5.0,<0.6
 django>=3,<3.1
 psycopg2-binary>=2.8,<2.9
+pysftp==0.2.9
