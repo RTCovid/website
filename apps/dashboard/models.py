@@ -39,7 +39,7 @@ class Facility(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField()
     short_name = models.CharField(max_length=50, blank=True)
-    cms_id = models.IntegerField(blank=True, db_index=True)
+    cms_id = models.CharField(max_length=6, blank=True, db_index=True)
 
     address = models.CharField(max_length=200)
     city = models.CharField(max_length=50)
@@ -47,7 +47,7 @@ class Facility(models.Model):
     postal_code = models.CharField(max_length=10)
     phone = models.CharField(max_length=10)
 
-    location = models.PointField(geography=True)
+    location = models.PointField(blank=True, null=True, geography=True)
 
     emergency_services = models.BooleanField()
 
