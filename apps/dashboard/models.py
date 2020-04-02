@@ -1,4 +1,5 @@
 from django.contrib.gis.db import models
+from django.contrib.postgres import fields as pg_fields
 from django.urls import reverse
 from django.utils.text import slugify
 
@@ -63,3 +64,46 @@ class Facility(models.Model):
             'slug': self.slug,
         }
         return reverse('facility', kwargs=kwargs)
+
+
+
+class FacilityMetrics(models.Model):
+    COVERED = 0
+    CONCERNED = 1
+    CRITICAL = 2
+    SEVERITY_CHOICES = [
+        (COVERED, 'Covered'),
+        (CONCERNED, 'Concerned'),
+        (CRITICAL, 'Critical'),
+    ]
+
+    facility = models.ForeignKey('Facility', on_delete=models.CASCADE)
+    timestamp = models.DateTimeField()
+
+    med_beds_capacity = models.IntegerField(blank=True)
+    med_beds_used = models.IntegerField(blank=True)
+    icu_beds_capacity = models.IntegerField(blank=True)
+    icu_beds_used = models.IntegerField(blank=True)
+    ventilators_capacity = models.IntegerField(blank=True)
+    ventilators_used = models.IntegerField(blank=True)
+
+    c19_patients = models.IntegerField(blank=True)
+    c19_vent_patients = models.IntegerField(blank=True)
+    c19_hospital_onset_patients = models.IntegerField(blank=True)
+    c19_awaiting_bed = models.IntegerField(blank=True)
+    c19_vent_awaiting_bed = models.IntegerField(blank=True)
+    c19_deaths = models.IntegerField(blank=True)
+
+    supply_n95respirators = models.IntegerField(choices=SEVERITY_CHOICES)
+    supply_facemasks = models.IntegerField(choices=SEVERITY_CHOICES)
+    supply_gloves = models.IntegerField(choices=SEVERITY_CHOICES)
+    supply_faceshields = models.IntegerField(choices=SEVERITY_CHOICES)
+    supply_gowns = models.IntegerField(choices=SEVERITY_CHOICES)
+
+    staffing_physicians = models.IntegerField(choices=SEVERITY_CHOICES)
+    staffing_nurses = models.IntegerField(choices=SEVERITY_CHOICES)
+    staffing_ancillady = models.IntegerField(choices=SEVERITY_CHOICES)
+
+    additional_data = pg_fields.JSONField(default=dict)
+
+    created_at = models.DateTimeField(auto_now_add=True)
