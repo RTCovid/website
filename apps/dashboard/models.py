@@ -6,7 +6,7 @@ from django.utils.text import slugify
 class State(models.Model):
     name = models.CharField(max_length=50)
     code = models.CharField(max_length=2, db_index=True)
-    population = models.IntegerField(null=True)
+    population = models.IntegerField(blank=True)
 
     def get_absolute_url(self):
         kwargs = {
@@ -19,7 +19,7 @@ class County(models.Model):
     state = models.ForeignKey('State', on_delete=models.PROTECT)
     name = models.CharField(max_length=100)
     slug = models.SlugField(max_length=100)
-    population = models.IntegerField(null=True)
+    population = models.IntegerField(blank=True)
 
     def save(self, *args, **kwargs):
         value = self.name
@@ -37,13 +37,13 @@ class County(models.Model):
 class Facility(models.Model):
     name = models.CharField(max_length=200)
     slug = models.SlugField()
-    short_name = models.CharField(max_length=50, null=True)
-    cms_id = models.IntegerField(max_length=6, null=True, db_index=True)
+    short_name = models.CharField(max_length=50, blank=True)
+    cms_id = models.IntegerField(blank=True, db_index=True)
 
     address = models.CharField(max_length=200)
     city = models.CharField(max_length=50)
     county = models.ForeignKey('County', on_delete=models.PROTECT)
-    postal_code = models.IntegerField(max_length=5)
+    postal_code = models.CharField(max_length=10)
     phone = models.CharField(max_length=10)
 
     location = models.PointField(geography=True)
