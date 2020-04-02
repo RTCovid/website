@@ -15,6 +15,10 @@ def load_states(apps, schema_editor):
         for row in reader:
             State.objects.create(name=row['Name'], code=row['Code'], population=row['Population'])
 
+def remove_states(apps, schema_editor):
+    State = apps.get_model('dashboard', 'State',)
+    State.objects.all().delete()
+
 def load_counties(apps, schema_editor):
     State = apps.get_model('dashboard', 'State')
     County = apps.get_model('dashboard', 'County')
@@ -28,6 +32,10 @@ def load_counties(apps, schema_editor):
             state = State.objects.get(name=row['State'])
             County.objects.create(name=row['Name'], state=state, population=row['Population'])
 
+def remove_counties(apps, schema_editor):
+    County = apps.get_model('dashboard', 'County',)
+    County.objects.all().delete()
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -35,6 +43,6 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(load_states),
-        migrations.RunPython(load_counties),
+        migrations.RunPython(load_states, remove_states),
+        migrations.RunPython(load_counties, remove_counties),
     ]
