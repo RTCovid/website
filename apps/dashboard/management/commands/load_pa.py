@@ -3,8 +3,10 @@ import csv, os, datetime, copy
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 from django.contrib.gis.measure import D
-from django.contrib.gis.geos import Point
+from django.contrib.gis.geos import Point, GEOSGeometry
+from django.utils.functional import cached_property
 
+import googlemaps
 import pysftp
 
 from apps.dashboard import models
@@ -183,7 +185,7 @@ class Command(BaseCommand):
             # Let's use the lookup table!
             facility = models.Facility.objects.get(cms_id=FACILITY_MAPPING[row["HospitalName"]])
         except KeyError:
-            facility = None
+            facility = self.create_facility(row)
 
         # try:
         #     facility = models.Facility.objects.get(name__iexact=row["HospitalName"], county__state__code="PA")
@@ -229,6 +231,77 @@ class Command(BaseCommand):
             #     print("Choose more", row["HospitalName"])
             #     return None
         return facility
+
+    def create_facility(self, row):
+        try:
+            county = self.get_county(row)
+        except Exception as e:
+            self.stdout.write(f"Could not get county: {e}")
+            return
+
+        # First check this record does not already exist without a cms id
+        # mapping
+        try:
+            return models.Facility.objects.get(name=row["HospitalName"], county=county)
+        except models.Facility.DoesNotExist:
+            pass
+
+        # Assuming False if all these fields are empty
+        emergency_cols = [
+            "Emergency Department-ED Available Capacity Immediate",
+            "Emergency Department-ED Available Capacity Delayed",
+            "Emergency Department-ED Available Capacity Minor",
+            "Emergency Department-ED Available Capacity Deceased",
+        ]
+
+        emergency_services = False
+        for col in emergency_cols:
+            val = row[col]
+            if val != "":
+                emergency_services = True
+                break
+
+        facility = models.Facility.objects.create(
+            name=row["HospitalName"],
+            address=row["HospitalStreetAddress"],
+            city=row["HospitalCity"],
+            county=county,
+            postal_code=row["HospitalZip"].split("-")[0],
+            location=GEOSGeometry(
+                "POINT({lon} {lat})".format(
+                    lon=row["HospitalLongitude"],
+                    lat=row["HospitalLatitude"],
+                ),
+            ),
+            emergency_services=emergency_services,
+        )
+        return facility
+
+    def get_county(self, row):
+        address = "{street}, {city}, {state}".format(
+            street=row["HospitalStreetAddress"],
+            city=row["HospitalCity"],
+            state=row["HospitalState"],
+        )
+        result = self.gmaps.geocode(address)[0]
+        county_name = None
+        for item in result["address_components"]:
+            if "administrative_area_level_2" in item["types"]:
+                county_name = item["long_name"]
+
+        for item in result["address_components"]:
+            if "administrative_area_level_1" in item["types"]:
+                state_code = item["short_name"]
+
+        if county_name is None:
+            return
+
+        return models.County.objects.get(name=county_name, state__code=state_code)
+
+    @cached_property
+    def gmaps(self):
+        return googlemaps.Client(key=os.environ.get("GOOGLE_GEOCODING_API_KEY"))
+
 
     def process_supplies(self, processed_dir, processed_filename):
         print("Starting load of supplies data")
