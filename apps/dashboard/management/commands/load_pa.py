@@ -1,4 +1,4 @@
-import csv, os
+import csv, os, datetime, copy
 
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
@@ -10,6 +10,8 @@ import pysftp
 from apps.dashboard import models
 
 class Command(BaseCommand):
+    timestamp = None
+
     def handle(self, *args, **kwargs):
         print("Started ingestion processing run")
         processed_dir, processed_filename = self.process_hospital()
@@ -34,6 +36,16 @@ class Command(BaseCommand):
             sftp.get(latest_filename, f'{target_dir}/{latest_filename}')
             print(f"Finished downloading {target_dir}/{latest_filename}")
         return (target_dir, latest_filename)
+    
+    def get_timestamp_from_filename(self, filename):
+        self.timestamp = datetime.datetime( 
+            int(filename.split('.')[0].split('_')[2].split('-')[0]),  # year 
+            int(filename.split('.')[0].split('_')[2].split('-')[1]),  # month 
+            int(filename.split('.')[0].split('_')[2].split('-')[2]),  # day 
+            int(filename.split('.')[0].split('_')[3].split('-')[0]),  # hour 
+            int(filename.split('.')[0].split('_')[3].split('-')[1]),  # minute
+            tzinfo=datetime.timezone.utc,
+        )
 
     def process_hospital(self):
         print("Starting load of hospital data")
@@ -41,6 +53,7 @@ class Command(BaseCommand):
         original_data_file_name = "processed_HOS.csv"
         found, not_found = (0, 0)
         data_dir, latest_filename = self.get_latest_file()
+        self.get_timestamp_from_filename(latest_filename)
 
         state = models.State.objects.get(code='PA')
         with open(os.path.join(data_dir, latest_filename)) as report_csv:
@@ -50,12 +63,120 @@ class Command(BaseCommand):
                     continue
                 facility = self.find_facility(row)
                 if facility:
+                    self.record_facility_update(facility, row)
                     found += 1
                 else:
                     not_found += 1
 
         print("Finished load of hospital data – Found: {}, Not Found: {}".format(found, not_found))
         return processed_dir, processed_filename
+
+    def record_facility_update(self, facility, row):
+        # Make sure this facility doesn't already have this update:
+        if models.FacilityMetrics.objects.filter(facility=facility, timestamp=self.timestamp).count():
+            return
+        
+        NON_ADDITIONAL_DATA_FIELDS = [
+            "HospitalName",
+            "HospitalStreetAddress",
+            "HospitalCity",
+            "HospitalState",
+            "HospitalZip",
+            "HospitalLatitude",
+            "HospitalLongitude",
+            "Available Beds-Medical and Surgical (Med/Surg) Staffed Beds",
+            "Available Beds-Medical and Surgical (Med/Surg) Current Available",
+            "Available Beds-Adult Intensive Care Unit (ICU) Staffed Beds",
+            "Available Beds-Adult Intensive Care Unit (ICU) Current Available",
+            "Ventilator Counts-Ventilators Number of ventilators",
+            "Ventilator Counts-Ventilators Number of ventilators in use",
+            "At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-3 or less days Response ?",
+            "At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-4-7 days Response ?",
+            "At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-8-14 days Response ?",
+            "At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-15-28 days Response ?",
+            "At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-29 or more days Response ?",
+            "At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-3 or less days Response ?",
+            "At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-4-7 days Response ?",
+            "At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-8-14 days Response ?",
+            "At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-15-28 days Response ?",
+            "At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-29 or more days Response ?",
+        ]
+
+        n95 = None
+        if row["At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-3 or less days Response ?"] == 'Y':
+            n95 = 2
+        elif row["At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-4-7 days Response ?"] == 'Y':
+            n95 = 2
+        elif row["At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-8-14 days Response ?"] == 'Y':
+            n95 = 1
+        elif row["At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-15-28 days Response ?"] == 'Y':
+            n95 = 1
+        elif row["At current utilization rates how long do you expect your current supply of N95 respirators to last at your facility?-29 or more days Response ?"] == 'Y':
+            n95 = 0
+        
+        ppe = None
+        if row["At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-3 or less days Response ?"] == "Y":
+            ppe = 2
+        elif row["At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-4-7 days Response ?"] == "Y":
+            ppe = 2
+        elif row["At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-8-14 days Response ?"] == "Y":
+            ppe = 1
+        elif row["At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-15-28 days Response ?"] == "Y":
+            ppe = 1
+        elif row["At current utilization rates how long do you expect your current supply of other PPE (gowns gloves etc) to last at your facility?-29 or more days Response ?"] == "Y":
+            ppe = 0
+
+        additional_data = copy.deepcopy(row)
+        for key in NON_ADDITIONAL_DATA_FIELDS:
+            del additional_data[key]
+
+        med_beds_capacity = row["Available Beds-Medical and Surgical (Med/Surg) Staffed Beds"]
+        med_beds_capacity = int(med_beds_capacity) if med_beds_capacity else None
+
+        med_beds_used = row["Available Beds-Medical and Surgical (Med/Surg) Current Available"]
+        med_beds_used = int(med_beds_used) if med_beds_used else None
+
+        icu_beds_capacity = row["Available Beds-Adult Intensive Care Unit (ICU) Staffed Beds"]
+        icu_beds_capacity = int(icu_beds_capacity) if icu_beds_capacity else None
+
+        icu_beds_used = row["Available Beds-Adult Intensive Care Unit (ICU) Current Available"]
+        icu_beds_used = int(icu_beds_used) if icu_beds_used else None
+
+        ventilators_capacity = row["Ventilator Counts-Ventilators Number of ventilators"]
+        ventilators_capacity = int(ventilators_capacity) if ventilators_capacity else None
+
+        ventilators_used = row["Ventilator Counts-Ventilators Number of ventilators in use"]
+        ventilators_used = int(ventilators_used) if ventilators_used else None
+
+        c19_patients = row["COVID-19 Patient Counts-Total number of inpatients diagnosed with COVID-19: "]
+        c19_patients = int(c19_patients) if c19_patients else None
+
+        c19_vent_patients = row["COVID-19 Patient Counts-Total number of patients diagnosed with COVID-19 on ventilators: "]
+        c19_vent_patients = int(c19_vent_patients) if c19_vent_patients else None
+
+        models.FacilityMetrics.objects.create(
+            facility=facility,
+            timestamp=self.timestamp,
+
+            med_beds_capacity=med_beds_capacity,
+            med_beds_used=med_beds_used,
+            icu_beds_capacity=icu_beds_capacity,
+            icu_beds_used=icu_beds_used,
+            ventilators_capacity=ventilators_capacity,
+            ventilators_used=ventilators_used,
+
+            c19_patients=c19_patients,
+            c19_vent_patients=c19_vent_patients,
+
+            supply_n95respirators=n95,
+            supply_facemasks=ppe,
+            supply_gloves=ppe,
+            supply_faceshields=ppe,
+            supply_gowns=ppe,
+
+            additional_data=additional_data,
+        )
+
 
     def find_facility(self, row):
         try:
