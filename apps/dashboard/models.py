@@ -55,6 +55,9 @@ class Facility(models.Model):
         value = self.short_name if self.short_name else self.name
         self.slug = slugify(value, allow_unicode=True)
         super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
     
     def get_absolute_url(self):
         kwargs = {
