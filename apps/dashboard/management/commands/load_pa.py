@@ -33,45 +33,45 @@ class Command(BaseCommand):
             print(f"Finished downloading {target_dir}/{latest_filename}")
         return (target_dir, latest_filename)
 
-    def process_csv(self, source_data_dir, source_data_file, tmpdir="/tmp"):
-        # data = pd.read_csv(os.path.join(source_data_dir, source_data_file), engine="python")
-        output_filename = "processed_HOS.csv"
-        output_dir = tmpdir
-        output_path = os.path.join(output_dir, output_filename)
-        rows = []
-        with open (os.path.join(source_data_dir, source_data_file), newline='') as rf:
-            reader = csv.reader(rf)
-            header = True
-            for row in reader:
-                if header:
-                    header_row = []
-                    for c in row:
-                        if "'" in c:
-                            c = c.replace("'", "")
-                        header_row.append(c)
-                    rows.append(header_row)
-                    header = False
-                else:
-                    rows.append(row)
-        with open (output_path, 'w', newline='') as wf:
-            writer = csv.writer(wf)
-            writer.writerows(rows)
-        return (output_dir, output_filename)
-
     def process_hospital(self):
         print("Starting load of hospital data")
         # The name of the file you created the layer service with.
         original_data_file_name = "processed_HOS.csv"
-
+        found, not_found = (0, 0)
         data_dir, latest_filename = self.get_latest_file()
-        processed_dir, processed_filename = self.process_csv(data_dir, latest_filename)
-        print(f"Finished processing {data_dir}/{latest_filename}, file is {processed_dir}/{processed_filename}")
 
         state = models.State.objects.get(code='PA')
-        
+        with open(os.path.join(data_dir, latest_filename)) as report_csv:
+            reader = csv.DictReader(report_csv)
+            for row in reader:
+                if row["HospitalName"] == "2Memorial Child/Adolescent Partial Hospital Program":
+                    continue
+                facility = self.find_facility(row)
+                if facility:
+                    found += 1
+                else:
+                    not_found += 1
 
-        print("Finished load of hospital data")
+        print("Finished load of hospital data – Found: {}, Not Found: {}".format(found, not_found))
         return processed_dir, processed_filename
+
+    def find_facility(self, row):
+        try:
+            facility = models.Facility.objects.get(name__iexact=row["HospitalName"], county__state__code="PA")
+        except models.Facility.DoesNotExist:
+            try:
+                facility = models.Facility.objects.get(
+                    county__state__code="PA",
+                    postal_code__iexact=row["HospitalZip"].rstrip(),
+                )
+                print("Found?", row["HospitalName"], ": ", facility.name)
+            except models.Facility.DoesNotExist:
+                print("Not Found: {} ({})".format(row["HospitalName"], row["HospitalZip"].rstrip()))
+                return None
+            except models.Facility.MultipleObjectsReturned:
+                print("Choose more", row["HospitalName"])
+                return None
+        return facility
 
     def process_supplies(self, processed_dir, processed_filename):
         print("Starting load of supplies data")
